@@ -91,7 +91,7 @@ struct UDP {
     u_short sport;
     u_short dport;
     u_short len;
-    u_short csum;
+    u_short checksum;
 };
 
 struct TCP {
@@ -131,7 +131,7 @@ struct __attribute__((__packed__)) UDP_packet { // thank you Silas
     eth_hdr ehead;
     IPv4 ip;
     UDP udp;
-    char payload[65535]; // Flexible array member for ICMP payload
+    char payload[65535]; // Flexible array member for UDP payload
 };
 
 #endif

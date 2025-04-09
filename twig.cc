@@ -318,7 +318,7 @@ void print_UDP(UDP *udp) {
 	printf("\tUDP:\tSport:\t%d\n", ntohs(udp->sport));
 	printf("\t\tDport:\t%d\n", ntohs(udp->dport));
 	printf("\t\tDGlen:\t%d\n", ntohs(udp->len));
-	printf("\t\tCSum:\t%d\n", ntohs(udp->csum));
+	printf("\t\tCSum:\t%d\n", ntohs(udp->checksum));
 }
 
 void print_TCP(TCP *tcp) {
@@ -381,6 +381,7 @@ void print_ICMP(ICMP *icmp){
 }
 
 void do_ICMP(ICMP_packet *packet, size_t size){
+	if(twig_debug) printf("Doing ICMP\n");
 	// Build the ICMP packet
 	ICMP_packet *reply;
 	reply = (ICMP_packet *)malloc(sizeof(ICMP_packet)); // Allocate memory for the ICMP packet
@@ -390,28 +391,23 @@ void do_ICMP(ICMP_packet *packet, size_t size){
 		exit(1);
 	}
 	
-	ICMP icmp_reply = packet->icmp; 
+	memcpy(&reply->icmp, &packet->icmp, sizeof(ICMP)); // Copy the ICMP header from the original packet
+
 
 	
 	if(packet->icmp.type == 8) // We got an echo request (ping), we must reply!!! I've been pinged!!!!!!
     {
 		
-        icmp_reply.type = 0; // Echo icmp_reply
-		icmp_reply.code = 0; // Code for echo icmp_reply
-		icmp_reply.id = packet->icmp.id; // Copy the ID from the request
-		icmp_reply.seq = packet->icmp.seq; // Copy the sequence number from the request
-		icmp_reply.checksum = 0; // Temporary value, will be calculated later
-		reply->icmp = icmp_reply; // Assign the modified ICMP header to the reply
-
-		// TODO fix checksum
-		u_short icmp_temp[sizeof(ICMP) + size];
-		memcpy(icmp_temp, &reply->icmp, sizeof(ICMP)); // Copy the ICMP header to a temporary buffer
-		memcpy(icmp_temp + sizeof(ICMP), packet->payload, size); // Copy the payload to the temporary buffer 
+        reply->icmp.type = 0; // Echo reply->icmp
+		reply->icmp.code = 0; // Code for echo reply->icmp
+		reply->icmp.id = packet->icmp.id; // Copy the ID from the request
+		reply->icmp.seq = packet->icmp.seq; // Copy the sequence number from the request
+		reply->icmp.checksum = 0; // Temporary value, will be calculated later
+		memcpy(reply->payload, packet->payload, size); // Copy the payload from the original packet
 		
 		// Calculate checksum after setting all fields
 #pragma GCC diagnostic ignored "-Waddress-of-packed-member"
-		reply->icmp.checksum = ICMP_checksum_maker(icmp_temp, sizeof(ICMP) + size); // Calculate the checksum for the ICMP header		
-		
+		reply->icmp.checksum = ICMP_checksum_maker((u_short *) &reply->icmp, sizeof(ICMP) + size); // Calculate the checksum for the ICMP header		
 
 		// Copy the ethernet header and IP headers
 		reply->ehead = packet->ehead; // Copy the ethernet header
@@ -428,7 +424,6 @@ void do_ICMP(ICMP_packet *packet, size_t size){
 		reply->ip.ttl = 64; // Set the TTL to 64
 		reply->ip.csum = 0; // Temporary value, will be calculated later
 
-		memcpy(reply->payload, packet->payload, size); // Copy the payload from the original packet
 
 #pragma GCC diagnostic ignored "-Waddress-of-packed-member"
 		reply->ip.csum = IPv4_checksum_maker((u_short *)&reply->ip, sizeof(IPv4)); // Calculate the checksum for the IP header
@@ -461,7 +456,7 @@ u_short ICMP_checksum_maker(u_short *buffer, int size) {
 
 	// Fold 32-bit sum to 16 bits
 	while (sum >> 16) {
-		sum = ntohs((sum & 0xFFFF) + (sum >> 16));
+		sum =(sum & 0xFFFF) + (sum >> 16);
 	}
 
 	return ~sum;
@@ -561,37 +556,20 @@ void do_UDP(UDP_packet *packet, size_t size)
 		exit(1);
 	}
 	memcpy(&reply->phead, &packet->phead, sizeof(packet->phead));
-	memcpy(&reply->ehead, &packet->ehead, sizeof(eth_hdr));
-	memcpy(&reply->ip, &packet->ip, sizeof(IPv4));
 	memcpy(&reply->udp, &packet->udp, sizeof(UDP));
 	memcpy(reply->payload, packet->payload, size); // Copy the payload from the original packet
 	
-	if(reply == NULL) {
-		perror("malloc failed for UDP_packet");
-		exit(1);
-	}
-	
-	UDP udp_reply = packet->udp; 
-
-	printf("%u\n", packet->udp.dport); // Print the UDP header for debugging
-
-	
 	if(ntohs(packet->udp.dport) == 7) 
 	{
-		udp_reply.sport = (packet->udp.dport); // Echo icmp_reply
-		udp_reply.dport = (packet->udp.sport); // Copy the ID from the request
-		udp_reply.len = htons(sizeof(UDP) + size); // Set the length of the IP header
-		udp_reply.csum = 0; // Temporary value, will be calculated later
-		reply->udp = udp_reply; // Assign the modified ICMP header to the reply
-
-		// TODO fix checksum
-		u_short udp_temp[sizeof(UDP) + size];
-		memccpy(udp_temp, &reply->udp, 0, sizeof(UDP)); // Copy the ICMP header to a temporary buffer
-		memccpy(udp_temp + sizeof(UDP), packet->payload, 0, size); // Copy the payload to the temporary buffer 
+		reply->udp.sport = (packet->udp.dport);
+		reply->udp.dport = (packet->udp.sport); // Copy the ID from the request
+		reply->udp.len = htons(sizeof(UDP) + size); // Set the length of the IP header
+		reply->udp.checksum = 0; // Temporary value, will be calculated later
+		memcpy(reply->payload, packet->payload, size); // Copy the payload from the original packet
 
 		// Calculate checksum after setting all fields
 #pragma GCC diagnostic ignored "-Waddress-of-packed-member"
-		reply->udp.csum = UDP_checksum_maker(udp_temp, sizeof(UDP) + size); // Calculate the checksum for the ICMP header		
+		reply->udp.checksum = UDP_checksum_maker((u_short *) &reply->udp, sizeof(UDP) + size); // Calculate the checksum for the ICMP header		
 
 		// Copy the ethernet header and IP headers
 		reply->ehead = packet->ehead; // Copy the ethernet header
@@ -606,7 +584,6 @@ void do_UDP(UDP_packet *packet, size_t size)
 		reply->ip.frag_offset = htons(0); // Set the fragment offset to 0
 		reply->ip.ttl = 64; // Set the TTL to 64
 		reply->ip.csum = 0; // Temporary value, will be calculated later
-		memcpy(reply->payload, packet->payload, size); // Copy the payload from the original packet
 
 #pragma GCC diagnostic ignored "-Waddress-of-packed-member"
 		reply->ip.csum = IPv4_checksum_maker((u_short *)&reply->ip, sizeof(IPv4)); // Calculate the checksum for the IP header
