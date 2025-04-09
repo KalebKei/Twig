@@ -8,3 +8,5 @@
 
 # Ignore editor
 .vscode/
+
+udp_ping/

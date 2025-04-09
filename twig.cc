@@ -258,6 +258,39 @@ int main(int argc, char *argv[])
 					}
                     do_ICMP(packet, size);
                 }
+				else if (ip_head->type == 0x11) // UDP
+				{
+					UDP *udp = (UDP *)(packet_buffer + sizeof(eth_hdr) + sizeof(IPv4));
+					char* payload = packet_buffer + (sizeof(eth_hdr) + sizeof(IPv4) + sizeof(UDP));
+					size_t size = (pph.caplen - sizeof(eth_hdr) - sizeof(IPv4) - sizeof(UDP));
+					
+					UDP_packet *packet;
+					packet = (UDP_packet *)malloc(sizeof(UDP_packet)); // Allocate memory for the ICMP packet
+					if(packet == NULL) {
+						perror("malloc failed for UDP_packet");
+						exit(1);
+					}
+					memcpy(&packet->phead, &pph, sizeof(pph));
+					memcpy(&packet->ehead, eh, sizeof(eth_hdr));
+					memcpy(&packet->ip, ip_head, sizeof(IPv4));
+					memcpy(&packet->udp, udp, sizeof(UDP));
+					memcpy(packet->payload, payload, size);
+
+					if(twig_debug)
+					{
+						printf("### We got ourselves a UDP header ###\n");
+						print_ethernet(eh);
+						print_IPv4(ip_head);
+						print_UDP(udp);
+						printf("Payload: ");
+						// Print the payload for debugging
+						for (size_t i = 0; i < size; i++) {
+							printf("%02x ", packet->payload[i]);
+						}
+						printf("\n Of size: %zu\n", size);
+					}
+					do_UDP(packet, size);
+				}
 				break;
             }
 			case 0x0806: // ARP
@@ -322,9 +355,6 @@ void print_IPv4(IPv4 *ipv4) {
 	if(ipv4->type == 0x06) {
 		printf("\t\tType:\t0x%x\t(TCP)\n", ipv4->type);
 		print_TCP((TCP *)(ipv4 + 1));
-	} else if(ipv4->type == 0x11) {
-		printf("\t\tType:\t0x%x\t(UDP)\n", ipv4->type);
-		print_UDP((UDP *)(ipv4 + 1));
 	} else
 		printf("\t\tType:\t0x%x\t\n", ipv4->type);
 }
@@ -375,8 +405,8 @@ void do_ICMP(ICMP_packet *packet, size_t size){
 
 		// TODO fix checksum
 		u_short icmp_temp[sizeof(ICMP) + size];
-		memccpy(icmp_temp, &reply->icmp, 0, sizeof(ICMP)); // Copy the ICMP header to a temporary buffer
-		memccpy(icmp_temp + sizeof(ICMP), packet->payload, 0, size); // Copy the payload to the temporary buffer 
+		memcpy(icmp_temp, &reply->icmp, sizeof(ICMP)); // Copy the ICMP header to a temporary buffer
+		memcpy(icmp_temp + sizeof(ICMP), packet->payload, size); // Copy the payload to the temporary buffer 
 		
 		// Calculate checksum after setting all fields
 #pragma GCC diagnostic ignored "-Waddress-of-packed-member"
@@ -466,6 +496,7 @@ void build_and_send_ICMP(ICMP_packet *packet, size_t size) {
 	ICMP icmp = packet->icmp;
 
 	pcap_pkthdr pph;
+	// TODO fix time
 	pph.ts_secs = htons(phead.ts_secs); // Use the original timestamp directly without htons
 	pph.ts_usecs = htons(phead.ts_usecs); // Preserve the original microseconds
 	pph.caplen = sizeof(eth_hdr) + sizeof(IPv4) + icmp.length() + size; // Dynamically calculate the captured length, including the ICMP payload size
@@ -518,9 +549,10 @@ void build_and_send_ICMP(ICMP_packet *packet, size_t size) {
 
 }
 
-
 void do_UDP(UDP_packet *packet, size_t size)
 {
+	if(twig_debug) printf("Doing UDP\n");
+
 	// Build the UDP packet
 	UDP_packet *reply;
 	reply = (UDP_packet *)malloc(sizeof(UDP_packet)); // Allocate memory for the UDP packet
@@ -541,12 +573,13 @@ void do_UDP(UDP_packet *packet, size_t size)
 	
 	UDP udp_reply = packet->udp; 
 
+	printf("%u\n", packet->udp.dport); // Print the UDP header for debugging
+
 	
-	if(packet->udp.sport == 53) // We got a DNS request, we must reply!!! I've been pinged!!!!!!
+	if(ntohs(packet->udp.dport) == 7) 
 	{
-		
-		udp_reply.sport = 53; // Echo icmp_reply
-		udp_reply.dport = packet->udp.dport; // Copy the ID from the request
+		udp_reply.sport = (packet->udp.dport); // Echo icmp_reply
+		udp_reply.dport = (packet->udp.sport); // Copy the ID from the request
 		udp_reply.len = htons(sizeof(UDP) + size); // Set the length of the IP header
 		udp_reply.csum = 0; // Temporary value, will be calculated later
 		reply->udp = udp_reply; // Assign the modified ICMP header to the reply
@@ -555,6 +588,30 @@ void do_UDP(UDP_packet *packet, size_t size)
 		u_short udp_temp[sizeof(UDP) + size];
 		memccpy(udp_temp, &reply->udp, 0, sizeof(UDP)); // Copy the ICMP header to a temporary buffer
 		memccpy(udp_temp + sizeof(UDP), packet->payload, 0, size); // Copy the payload to the temporary buffer 
+
+		// Calculate checksum after setting all fields
+#pragma GCC diagnostic ignored "-Waddress-of-packed-member"
+		reply->udp.csum = UDP_checksum_maker(udp_temp, sizeof(UDP) + size); // Calculate the checksum for the ICMP header		
+
+		// Copy the ethernet header and IP headers
+		reply->ehead = packet->ehead; // Copy the ethernet header
+		memcpy(reply->ehead.dest, packet->ehead.src, sizeof(reply->ehead.dest)); // Swap source and destination MAC addresses
+		memcpy(reply->ehead.src, packet->ehead.dest, sizeof(reply->ehead.src)); // Swap source and destination MAC addresses
+
+		reply->ip = packet->ip; // Copy the IP header
+		memcpy(reply->ip.dest, packet->ip.src, 4); // Swap source and destination IP addresses
+		memcpy(reply->ip.src, packet->ip.dest, 4);
+		reply->ip.len = htons(sizeof(IPv4) + sizeof(UDP) + size); // Set the length of the IP header
+		reply->ip.frag_ident = htons(0); // Set the fragment identifier to 0
+		reply->ip.frag_offset = htons(0); // Set the fragment offset to 0
+		reply->ip.ttl = 64; // Set the TTL to 64
+		reply->ip.csum = 0; // Temporary value, will be calculated later
+		memcpy(reply->payload, packet->payload, size); // Copy the payload from the original packet
+
+#pragma GCC diagnostic ignored "-Waddress-of-packed-member"
+		reply->ip.csum = IPv4_checksum_maker((u_short *)&reply->ip, sizeof(IPv4)); // Calculate the checksum for the IP header
+
+		build_and_send_UDP(reply, size);
 		
 	}
 }
@@ -584,6 +641,60 @@ u_short UDP_checksum_maker(u_short *buffer, int size)
 
 void build_and_send_UDP(UDP_packet *packet, size_t size)
 {
-	// TODO
+	// Time to write to pcap file
+	pcap_pkthdr phead = packet->phead;
+	UDP udp = packet->udp;
+
+	pcap_pkthdr pph;
+	// TODO fix time
+	pph.ts_secs = htons(phead.ts_secs); // Use the original timestamp directly without htons
+	pph.ts_usecs = htons(phead.ts_usecs); // Preserve the original microseconds
+	pph.caplen = sizeof(eth_hdr) + sizeof(IPv4) + sizeof(udp) + size; // Dynamically calculate the captured length, including the ICMP payload size
+	pph.len = pph.caplen; // Set the actual length to the captured length
+
+	if(twig_debug){
+		printf("sizeof(pcap_pkthdr): %zu\n", sizeof(pcap_pkthdr));
+		printf("sizeof(eth_hdr): %zu\n", sizeof(eth_hdr));
+		printf("sizeof(IPv4): %zu\n", sizeof(IPv4));
+		printf("sizeof(UDP): %zu\n", sizeof(UDP));
+	}
+
+	if(twig_debug)
+	{
+		printf("### Sending UDP Reply ###\n");
+		print_ethernet(&packet->ehead); // Print the ethernet header for debugging
+		print_IPv4(&packet->ip); // Print the IPv4 header for debugging
+		print_UDP(&packet->udp); // Print the ICMP header for debugging
+		printf("Payload: ");
+		// Print the payload for debugging
+		for (size_t i = 0; i < size; i++) {
+			printf("%02x ", packet->payload[i]);
+		}
+		printf("\n Of size: %zu\n", size);
+		printf("Total size of packet: %u, versus predicted: %zu\n", pph.caplen, sizeof(eth_hdr) + sizeof(IPv4) + sizeof(ICMP) + size);
+	}
+
+	// Build the packet here
+	iovec out_packet[10];
+	// pcap packet header, ethernet header, IP header, ICMP header, and payload
+	out_packet[0].iov_base = &pph;
+	out_packet[0].iov_len = sizeof(pph); 
+	out_packet[1].iov_base = &packet->ehead;
+	out_packet[1].iov_len = sizeof(eth_hdr); // Correctly calculate the size of the ethernet header
+	out_packet[2].iov_base = &packet->ip;
+	out_packet[2].iov_len = sizeof(IPv4); // Correctly calculate the size of the IPv4 header
+	out_packet[3].iov_base = &packet->udp;
+	out_packet[3].iov_len = sizeof(UDP); // Correctly calculate the size of the ICMP header
+	out_packet[4].iov_base = packet->payload;
+	out_packet[4].iov_len = size; // Correctly calculate the size of the payload
+
+	// Send the out_packet here
+	if(writev(fd, out_packet, 5) == -1) // Correct the number of iovec elements to include ICMP
+	{
+		perror("writev failed");
+		free(packet);
+		exit(1);
+	}
+
 }
 
