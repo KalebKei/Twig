@@ -69,7 +69,7 @@ int main(int argc, char *argv[])
 
 	/* start with something like this (or use this if you like it) */
 	/* i'm using it */
-	if (argc == 2) {
+	if (argc == 2 && !(strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) ) {
 		filename = argv[1];
 	} else if ((argc == 3) && (strcmp(argv[1],"-d") == 0)) {
 		debug = 1;
@@ -88,8 +88,8 @@ int main(int argc, char *argv[])
 		filename = argv[2];
  	} else {
 		fprintf(stdout,"Usage for normal: %s filename\n", argv[0]);
-		fprintf(stdout,"Usage for debug types: %s [-d,-td] filename\n", argv[0]);
-		fprintf(stdout,"Usage for ARP debug: %s -a filename\n", argv[0]);
+		fprintf(stdout,"Usage for debug types where -d is for full debug and -dt is for twig debug: %s [-d,-td] filename\n", argv[0]);
+		fprintf(stdout,"Usage for ARP cache output: %s -a filename\n", argv[0]);
 
 		exit(99); // a little extreme but i'll allow it
 	}
