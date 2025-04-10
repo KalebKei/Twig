@@ -147,19 +147,19 @@ int main(int argc, char *argv[])
 	}
 	if (pfh.magic != PCAP_MAGIC) 
 	{
-		if(htonl(pfh.magic) == PCAP_MAGIC)
+		if(byteswap32(pfh.magic) == PCAP_MAGIC)
 		{
 			if(debug)
 				printf("byte order reversed\n");
-			pfh.magic = htonl(pfh.magic);
-			pfh.version_major = ntohs(pfh.version_major);
-			pfh.version_minor = ntohs(pfh.version_minor);
-			pfh.linktype = htonl(pfh.linktype);
+			pfh.magic = byteswap32(pfh.magic);
+			pfh.version_major = byteswap16(pfh.version_major);
+			pfh.version_minor = byteswap16(pfh.version_minor);
+			pfh.linktype = byteswap32(pfh.linktype);
 
 			// these aren't used, but i did it just in case
-			pfh.thiszone = htonl(pfh.thiszone);
-			pfh.sigfigs = htonl(pfh.sigfigs);
-			pfh.snaplen = htonl(pfh.snaplen);
+			pfh.thiszone = byteswap32(pfh.thiszone);
+			pfh.sigfigs = byteswap32(pfh.sigfigs);
+			pfh.snaplen = byteswap32(pfh.snaplen);
 			byteswap = true;
 
 			if(debug || twig_debug)
@@ -227,14 +227,14 @@ int main(int argc, char *argv[])
 		}
 		
 		if (byteswap) { // this took me too long to figure this out
-			pph.ts_secs = htonl(pph.ts_secs);
-			pph.ts_usecs = htonl(pph.ts_usecs);
-			pph.caplen = htonl(pph.caplen);
-			pph.len = htonl(pph.len);
+			pph.ts_secs = byteswap32(pph.ts_secs);
+			pph.ts_usecs = byteswap32(pph.ts_usecs);
+			pph.caplen = byteswap32(pph.caplen);
+			pph.len = byteswap32(pph.len);
 		}
 		
 		/* then read the packet data that goes with it into a buffer (variable size) */
-		// pph.caplen = htonl(pph.caplen);
+		// pph.caplen = byteswap32(pph.caplen);
 
 		fflush(stdout);
 		ret = read(fd, packet_buffer, pph.caplen);
@@ -266,9 +266,9 @@ int main(int argc, char *argv[])
 			eth_hdr *eh = (eth_hdr *) packet_buffer;
             if(debug) print_ethernet(eh);
 			if(debug) 
-				printf("ethernet type: 0x%04x\n", ntohs(eh->type));
+				printf("ethernet type: 0x%04x\n", byteswap16(eh->type));
 
-			switch (ntohs(eh->type))
+			switch (byteswap16(eh->type))
 			{
 			case 0x0800: // IPv4
             {
@@ -377,20 +377,20 @@ void print_ethernet(struct eth_hdr *peh) {
 	// Had to swap to printf because cout was breaking the output for some reason
 	printf("%02x:%02x:%02x:%02x:%02x:%02x\t", peh->dest[0], peh->dest[1], peh->dest[2], peh->dest[3], peh->dest[4], peh->dest[5]);
 	printf("%02x:%02x:%02x:%02x:%02x:%02x\t", peh->src[0], peh->src[1], peh->src[2], peh->src[3], peh->src[4], peh->src[5]);
-	printf("0x%04x\n", ntohs(peh->type));
+	printf("0x%04x\n", byteswap16(peh->type));
 	fflush(stdout);
 }
 
 void print_UDP(UDP *udp) {
-	printf("\tUDP:\tSport:\t%d\n", ntohs(udp->sport));
-	printf("\t\tDport:\t%d\n", ntohs(udp->dport));
-	printf("\t\tDGlen:\t%d\n", ntohs(udp->len));
-	printf("\t\tCSum:\t%d\n", ntohs(udp->checksum));
+	printf("\tUDP:\tSport:\t%d\n", byteswap16(udp->sport));
+	printf("\t\tDport:\t%d\n", byteswap16(udp->dport));
+	printf("\t\tDGlen:\t%d\n", byteswap16(udp->len));
+	printf("\t\tCSum:\t%d\n", byteswap16(udp->checksum));
 }
 
 void print_TCP(TCP *tcp) {
-	printf("\tTCP:\tSport:\t%d\n", ntohs(tcp->sport));
-	printf("\t\tDport:\t%d\n", ntohs(tcp->dport));
+	printf("\tTCP:\tSport:\t%d\n", byteswap16(tcp->sport));
+	printf("\t\tDport:\t%d\n", byteswap16(tcp->dport));
 
 	printf("\t\tFlags:\t%s", (tcp->flags & 0x01 ? "F" : "-"));
 	printf("%s", (tcp->flags & 0x02 ? "S" : "-"));
@@ -400,10 +400,10 @@ void print_TCP(TCP *tcp) {
 	printf("%s", (tcp->flags & 0x20 ? "U" : "-"));
 	printf("\n");
 
-	printf("\t\tSeq:\t%u\n", ntohl(tcp->seq));
-	printf("\t\tACK:\t%u\n", ntohl(tcp->ack));
-	printf("\t\tWin:\t%d\n", ntohs(tcp->win));
-	printf("\t\tCSum:\t%d\n", ntohs(tcp->csum));
+	printf("\t\tSeq:\t%u\n", byteswap32(tcp->seq));
+	printf("\t\tACK:\t%u\n", byteswap32(tcp->ack));
+	printf("\t\tWin:\t%d\n", byteswap16(tcp->win));
+	printf("\t\tCSum:\t%d\n", byteswap16(tcp->csum));
 }
 
 void print_IPv4(IPv4 *ipv4) {
@@ -412,13 +412,13 @@ void print_IPv4(IPv4 *ipv4) {
 	printf("\t\tSrc:\t%d.%d.%d.%d\t\n", ipv4->src[0], ipv4->src[1], ipv4->src[2], ipv4->src[3]);
 	printf("\t\tDest:\t%d.%d.%d.%d\t\n", ipv4->dest[0], ipv4->dest[1], ipv4->dest[2], ipv4->dest[3]);
 	printf("\t\tTTL:\t%d\n", ipv4->ttl);
-	printf("\t\tFrag Ident:\t%d\n", ntohs(ipv4->frag_ident));
+	printf("\t\tFrag Ident:\t%d\n", byteswap16(ipv4->frag_ident));
 	
-	printf("\t\tFrag Offset:\t%d\n", (ntohs(ipv4->frag_offset) & 0x1FFF) * 8); // this was gross; i had to look up the offset for the offset
+	printf("\t\tFrag Offset:\t%d\n", (byteswap16(ipv4->frag_offset) & 0x1FFF) * 8); // this was gross; i had to look up the offset for the offset
 
-	printf("\t\tFrag DF:\t%s\n", (ntohs(ipv4->frag_offset) & 0x4000) ? "yes" : "no"); // i haven't had an excuse to use a ? in a while
-	printf("\t\tFrag MF:\t%s\n", (ntohs(ipv4->frag_offset) & 0x2000) ? "yes" : "no");
-	printf("\t\tIP CSum:\t%d\n", ntohs(ipv4->csum));
+	printf("\t\tFrag DF:\t%s\n", (byteswap16(ipv4->frag_offset) & 0x4000) ? "yes" : "no"); // i haven't had an excuse to use a ? in a while
+	printf("\t\tFrag MF:\t%s\n", (byteswap16(ipv4->frag_offset) & 0x2000) ? "yes" : "no");
+	printf("\t\tIP CSum:\t%d\n", byteswap16(ipv4->csum));
 	if(ipv4->type == 0x06) {
 		printf("\t\tType:\t0x%x\t(TCP)\n", ipv4->type);
 		print_TCP((TCP *)(ipv4 + 1));
@@ -427,10 +427,10 @@ void print_IPv4(IPv4 *ipv4) {
 }
 
 void print_Arp(ARP *arp) {
-	printf("\tARP:\tHWtype:\t%d\n", ntohs(arp->htype));
+	printf("\tARP:\tHWtype:\t%d\n", byteswap16(arp->htype));
 	printf("\t\thlen:\t%d\n", arp->hlen);
 	printf("\t\tplen:\t%d\n", arp->plen);
-	printf("\t\tOP:\t%d (ARP %s)\n", ntohs(arp->op), (ntohs(arp->op) == 1) ? "request" : "reply");
+	printf("\t\tOP:\t%d (ARP %s)\n", byteswap16(arp->op), (byteswap16(arp->op) == 1) ? "request" : "reply");
 	printf("\t\tHardware:\t%02x:%02x:%02x:%02x:%02x:%02x\n", arp->sha[0], arp->sha[1], arp->sha[2], arp->sha[3], arp->sha[4], arp->sha[5]);
 	printf("\t\t\t==>\t%02x:%02x:%02x:%02x:%02x:%02x\n", arp->tha[0], arp->tha[1], arp->tha[2], arp->tha[3], arp->tha[4], arp->tha[5]);
 	printf("\t\tProtocol:\t%d.%d.%d.%d\t\n", arp->spa[0], arp->spa[1], arp->spa[2], arp->spa[3]);
@@ -440,10 +440,10 @@ void print_Arp(ARP *arp) {
 void print_ICMP(ICMP *icmp){
     printf("\tICMP:\tType:\t%d\n", icmp->type);
     printf("\t\tCode:\t%d\n", icmp->code);
-    printf("\t\tCSum:\t%d\n", ntohs(icmp->checksum));
+    printf("\t\tCSum:\t%d\n", byteswap16(icmp->checksum));
     if (icmp->type == 0 || icmp->type == 8) { // Echo reply or request
-        printf("\t\tID:\t%d\n", ntohs(icmp->id));
-        printf("\t\tSeq:\t%d\n", ntohs(icmp->seq));
+        printf("\t\tID:\t%d\n", byteswap16(icmp->id));
+        printf("\t\tSeq:\t%d\n", byteswap16(icmp->seq));
     }
 }
 
@@ -486,9 +486,9 @@ void do_ICMP(ICMP_packet *packet, size_t size){
 		reply->ip = packet->ip; // Copy the IP header
 		memcpy(reply->ip.dest, packet->ip.src, 4); // Swap source and destination IP addresses
 		memcpy(reply->ip.src, packet->ip.dest, 4);
-		reply->ip.len = htons(sizeof(IPv4) + sizeof(ICMP) + size); // Set the length of the IP header
-		reply->ip.frag_ident = htons(0); // Set the fragment identifier to 0
-		reply->ip.frag_offset = htons(0); // Set the fragment offset to 0
+		reply->ip.len = byteswap16(sizeof(IPv4) + sizeof(ICMP) + size); // Set the length of the IP header
+		reply->ip.frag_ident = byteswap16(0); // Set the fragment identifier to 0
+		reply->ip.frag_offset = byteswap16(0); // Set the fragment offset to 0
 		reply->ip.ttl = 64; // Set the TTL to 64
 		reply->ip.csum = 0; // Temporary value, will be calculated later
 
@@ -641,26 +641,26 @@ void do_UDP(UDP_packet *packet, size_t size)
 	
 	reply->ip = packet->ip; // Copy the IP header
 
-	reply->ip.frag_offset = htons(0); // Set the fragment offset to 0
+	reply->ip.frag_offset = byteswap16(0); // Set the fragment offset to 0
 	reply->ip.ttl = 64; // Set the TTL to 64
 	reply->ip.csum = 0; // Temporary value, will be calculated later
-	reply->ip.len = htons(sizeof(IPv4) + sizeof(UDP) + size); // Set the length of the IP header
-	reply->ip.frag_ident = htons(0); // Set the fragment identifier to 0
+	reply->ip.len = byteswap16(sizeof(IPv4) + sizeof(UDP) + size); // Set the length of the IP header
+	reply->ip.frag_ident = byteswap16(0); // Set the fragment identifier to 0
 	reply->ip.type = 0x11; // Set the protocol type to UDP
 	memcpy(reply->ip.dest, packet->ip.src, 4); // Swap source and destination IP addresses
 	memcpy(reply->ip.src, packet->ip.dest, 4);
 
 	memcpy(&reply->udp, &packet->udp, sizeof(ICMP)); // Copy the ICMP header from the original packet
 
-	if(ntohs(packet->udp.dport) == 7) // We got an echo request (ping), we must reply!!! I've been pinged!!!!!!
+	if(byteswap16(packet->udp.dport) == 7) // We got an echo request (ping), we must reply!!! I've been pinged!!!!!!
     {
 		reply->udp.sport = packet->udp.dport; // Copy the source port from the request
 		reply->udp.dport = packet->udp.sport; // Copy the destination port from the request
-		reply->udp.len = htons(sizeof(UDP) + size); // Set the length of the UDP header
+		reply->udp.len = byteswap16(sizeof(UDP) + size); // Set the length of the UDP header
 		reply->udp.checksum = 0; // Temporary value, will be calculated later
 		memcpy(reply->payload, packet->payload, size); // Copy the payload from the original packet
 	}
-	else if(ntohs(packet->udp.dport) == 37) // Time request
+	else if(byteswap16(packet->udp.dport) == 37) // Time request
 	{
 		reply->udp.sport = packet->udp.dport; // Copy the source port from the request
 		reply->udp.dport = packet->udp.sport; // Copy the destination port from the request
@@ -674,8 +674,8 @@ void do_UDP(UDP_packet *packet, size_t size)
 		memcpy(reply->payload, &now, sizeof(u_int32_t)); // Copy the time to the payload
 		size = sizeof(u_int32_t); // Set the size to the size of the time payload
 
-		reply->udp.len = htons(sizeof(UDP) + size); // Set the length of the UDP header
-		reply->ip.len = htons(sizeof(IPv4) + sizeof(UDP) + size); // Set the length of the IP header
+		reply->udp.len = byteswap16(sizeof(UDP) + size); // Set the length of the UDP header
+		reply->ip.len = byteswap16(sizeof(IPv4) + sizeof(UDP) + size); // Set the length of the IP header
 	}
 	else
 	{
@@ -688,7 +688,7 @@ void do_UDP(UDP_packet *packet, size_t size)
 	// Calculate checksum after setting all fields 
 	// THIS IS OPTIONAL SO I AM NOT DOING IT!
 	// #pragma GCC diagnostic ignored "-Waddress-of-packed-member"
-	// reply->udp.checksum = ntohs(UDP_checksum_maker((u_short *) &reply->udp, sizeof(UDP) + size));
+	// reply->udp.checksum = byteswap16(UDP_checksum_maker((u_short *) &reply->udp, sizeof(UDP) + size));
 
 
 
