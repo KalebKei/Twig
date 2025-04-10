@@ -17,3 +17,4 @@ udp_ping/
 *.exe
 twig
 tools/socket_time
+*.o

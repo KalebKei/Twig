@@ -4,18 +4,21 @@
 #include <unistd.h>
 #include <sys/uio.h>
 #include <netinet/in.h>
+#include <sys/time.h>
 #include <cstring>
 #include <iostream>
 #include <fstream>
 #include <iomanip>
 #include <chrono>
 #include "twig-utils.h"
+#include <arpa/inet.h>
 
 // Global vars
 
 int debug = 0;
 int twig_debug = 0;
 int arp_debug = 0;
+
 int fd = 0; // initiate to 0 as stdin file descriptor (if not stdin then it will be changed)
 
 bool byteswap = false;
@@ -34,6 +37,14 @@ void print_IPv4(IPv4 *ipv4);
 void print_Arp(ARP *arp);
 
 void print_ICMP(ICMP *icmp);
+
+u_int16_t byteswap16(u_int16_t val) {
+	return (val << 8) | (val >> 8);
+};
+
+u_int32_t byteswap32(u_int32_t val) {
+	return ((val << 24) & 0xFF000000) | ((val << 8) & 0x00FF0000) | ((val >> 8) & 0x0000FF00) | (val >> 24);
+};
 
 
 // Actual function declaration
@@ -86,8 +97,26 @@ int main(int argc, char *argv[])
 	else if ((argc == 3) && (strcmp(argv[1],"-a") == 0)) {
 		arp_debug = 1;
 		filename = argv[2];
- 	} else {
+ 	}
+	else if ((argc == 3) && (strcmp(argv[1],"-i") == 0)) {
+		std::string ip_addr = argv[2];
+		
+		// Find the mask if the string is in the right pos
+		std::string mask = ip_addr.find("_") ? ip_addr.substr(ip_addr.find("_") + 1) : "";
+
+		ip_addr = ip_addr.substr(0, ip_addr.find("_"));
+		ip_addr.at(ip_addr.length() - 1) = '0'; // Set the last octet to 0
+
+		// Hardcoded for this assignment
+
+		std::string temp_filename = ip_addr + "_" + mask + ".dmp";
+		filename = strdup(temp_filename.c_str());
+
+		printf("Network address: %s/%s\n", ip_addr.c_str(), mask.c_str());
+		printf("Filename: %s\n", filename);
+	} else {
 		fprintf(stdout,"Usage for normal: %s filename\n", argv[0]);
+		fprintf(stdout,"Usage for interface: %s -i [interface]\n", argv[0]);
 		fprintf(stdout,"Usage for debug types where -d is for full debug and -dt is for twig debug: %s [-d,-td] filename\n", argv[0]);
 		fprintf(stdout,"Usage for ARP cache output: %s -a filename\n", argv[0]);
 
@@ -188,7 +217,7 @@ int main(int argc, char *argv[])
 		}
 		
 		if (ret == 0) {
-			usleep(30000); // Delay
+			usleep(3000); // Delay
 			continue;
 		}
 		
@@ -530,10 +559,13 @@ void build_and_send_ICMP(ICMP_packet *packet, size_t size) {
 	ICMP icmp = packet->icmp;
 
 	pcap_pkthdr pph;
-	// pph.ts_secs = time(NULL); // Set the timestamp to the current time
-	// pph.ts_usecs = 0; // Set the microseconds to 0
-	pph.ts_secs = packet->phead.ts_secs; // Copy the timestamp from the original packet
-	pph.ts_usecs = packet->phead.ts_usecs; // Copy the microseconds from the original packet
+
+	timeval temp_time;
+
+	gettimeofday(&temp_time, NULL); // Get the current time
+	pph.ts_secs = temp_time.tv_sec; // Copy the timestamp from the original packet
+	pph.ts_usecs = temp_time.tv_usec; // Copy the microseconds from the original packet
+	
 
 	pph.caplen = sizeof(eth_hdr) + sizeof(IPv4) + icmp.length() + size; // Dynamically calculate the captured length, including the ICMP payload size
 	pph.len = pph.caplen; // Set the actual length to the captured length
@@ -698,8 +730,12 @@ void build_and_send_UDP(UDP_packet *packet, size_t size)
 	pcap_pkthdr pph;
 	// pph.ts_secs = time(NULL); // Set the timestamp to the current time
 	// pph.ts_usecs = 0; // Set the microseconds to 0
-	pph.ts_secs = packet->phead.ts_secs; // Copy the timestamp from the original packet
-	pph.ts_usecs = packet->phead.ts_usecs; // Copy the microseconds from the original packet
+
+	timeval temp_time;
+
+	gettimeofday(&temp_time, NULL); // Get the current time
+	pph.ts_secs = temp_time.tv_sec; // Copy the timestamp from the original packet
+	pph.ts_usecs = temp_time.tv_usec; // Copy the microseconds from the original packet
 	
 	pph.caplen = sizeof(eth_hdr) + sizeof(IPv4) + sizeof(udp) + size; // Dynamically calculate the captured length, including the ICMP payload size
 	pph.len = pph.caplen; // Set the actual length to the captured length
