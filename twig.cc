@@ -8,12 +8,14 @@
 #include <iostream>
 #include <fstream>
 #include <iomanip>
+#include <chrono>
 #include "twig-utils.h"
 
 // Global vars
 
 int debug = 0;
 int twig_debug = 0;
+int arp_debug = 0;
 int fd = 0; // initiate to 0 as stdin file descriptor (if not stdin then it will be changed)
 
 bool byteswap = false;
@@ -80,8 +82,15 @@ int main(int argc, char *argv[])
     else if ((argc == 3) && (strcmp(argv[1],"-td") == 0)) {
         twig_debug = 1;
 		filename = argv[2];
-	} else {
-		fprintf(stdout,"Usage: %s [-d,-td] filename\n", argv[0]);
+	}
+	else if ((argc == 3) && (strcmp(argv[1],"-a") == 0)) {
+		arp_debug = 1;
+		filename = argv[2];
+ 	} else {
+		fprintf(stdout,"Usage for normal: %s filename\n", argv[0]);
+		fprintf(stdout,"Usage for debug types: %s [-d,-td] filename\n", argv[0]);
+		fprintf(stdout,"Usage for ARP debug: %s -a filename\n", argv[0]);
+
 		exit(99); // a little extreme but i'll allow it
 	}
 
@@ -148,6 +157,17 @@ int main(int argc, char *argv[])
         printf("header linktype: %d\n\n", pfh.linktype);
     }
 
+	
+	/* create the ARP cache struct */
+	ARP_Cache *arp_cache;
+	arp_cache = (ARP_Cache *)malloc(sizeof(ARP_Cache)); // Allocate memory for the ARP cache
+	if(arp_cache == NULL) {
+		perror("malloc failed for ARP_Cache");
+		exit(1);
+	}
+	arp_cache->count = 0; // Initialize the count to 0
+	
+	if(debug || twig_debug) printf("Created ARP cache struct\n");
 	/* now read each packet in the file */
 	while (1) {
 		char packet_buffer[100000]; // bad boo go away unsafe booos
@@ -225,6 +245,24 @@ int main(int argc, char *argv[])
             {
                 IPv4 *ip_head = (IPv4 *)(packet_buffer + sizeof(eth_hdr));
 				if(debug) print_IPv4(ip_head); // Packet buffer is the start of the packet, so add eth_hdr size to get to the start of the IPv4 header
+
+				
+				// Add the source MAC and IP to the ARP cache
+				if(debug || twig_debug || arp_debug) printf("Attempting to add to ARP cache\n");
+				arp_cache->add_entry(eh->src, ip_head->src);
+
+				if(arp_debug) {
+					printf("ARP Cache:\n");
+					for(int i = 0; i < arp_cache->count; i++) {
+						printf("\tMAC: %02x:%02x:%02x:%02x:%02x:%02x\tIP: %d.%d.%d.%d\n", 
+							arp_cache->entries[i].mac[0], arp_cache->entries[i].mac[1], arp_cache->entries[i].mac[2], 
+							arp_cache->entries[i].mac[3], arp_cache->entries[i].mac[4], arp_cache->entries[i].mac[5],
+							arp_cache->entries[i].ip[0], arp_cache->entries[i].ip[1], arp_cache->entries[i].ip[2], 
+							arp_cache->entries[i].ip[3]);
+						printf("\tLast seen: %s", ctime(&arp_cache->entries[i].last_seen));
+					}
+				}
+				
                 if(ip_head->type == 1) 
                 {
 					ICMP *icmp = (ICMP *)(packet_buffer + sizeof(eth_hdr) + sizeof(IPv4));
@@ -392,8 +430,9 @@ void do_ICMP(ICMP_packet *packet, size_t size){
 	}
 	
 	memcpy(&reply->icmp, &packet->icmp, sizeof(ICMP)); // Copy the ICMP header from the original packet
-
-
+	memcpy(&reply->phead.ts_secs, &packet->phead.ts_secs, sizeof(packet->phead.ts_secs)); // Copy the timestamp from the original packet
+	memcpy(&reply->phead.ts_usecs, &packet->phead.ts_usecs, sizeof(packet->phead.ts_usecs)); // Copy the timestamp from the original packet
+	
 	
 	if(packet->icmp.type == 8) // We got an echo request (ping), we must reply!!! I've been pinged!!!!!!
     {
@@ -487,13 +526,15 @@ u_short IPv4_checksum_maker(u_short *buffer, int size)
 
 void build_and_send_ICMP(ICMP_packet *packet, size_t size) {
 	// Time to write to pcap file
-	pcap_pkthdr phead = packet->phead;
+	// pcap_pkthdr phead = packet->phead;
 	ICMP icmp = packet->icmp;
 
 	pcap_pkthdr pph;
-	// TODO fix time
-	pph.ts_secs = htons(phead.ts_secs); // Use the original timestamp directly without htons
-	pph.ts_usecs = htons(phead.ts_usecs); // Preserve the original microseconds
+	// pph.ts_secs = time(NULL); // Set the timestamp to the current time
+	// pph.ts_usecs = 0; // Set the microseconds to 0
+	pph.ts_secs = packet->phead.ts_secs; // Copy the timestamp from the original packet
+	pph.ts_usecs = packet->phead.ts_usecs; // Copy the microseconds from the original packet
+
 	pph.caplen = sizeof(eth_hdr) + sizeof(IPv4) + icmp.length() + size; // Dynamically calculate the captured length, including the ICMP payload size
 	pph.len = pph.caplen; // Set the actual length to the captured length
 
@@ -547,6 +588,7 @@ void build_and_send_ICMP(ICMP_packet *packet, size_t size) {
 void do_UDP(UDP_packet *packet, size_t size)
 {
 	if(twig_debug) printf("Doing UDP\n");
+
 	
 	// Build the UDP packet
 	
@@ -557,6 +599,8 @@ void do_UDP(UDP_packet *packet, size_t size)
 		exit(1);
 	}
 	memcpy(reply->payload, packet->payload, size); // Copy the payload from the original packet so that way it's not a weird size
+	memcpy(&reply->phead.ts_secs, &packet->phead.ts_secs, sizeof(packet->phead.ts_secs)); // Copy the timestamp from the original packet
+	memcpy(&reply->phead.ts_usecs, &packet->phead.ts_usecs, sizeof(packet->phead.ts_usecs)); // Copy the timestamp from the original packet
 	
 	// Copy the ethernet header and IP headers
 	reply->ehead = packet->ehead; // Copy the ethernet header
@@ -591,13 +635,11 @@ void do_UDP(UDP_packet *packet, size_t size)
 		reply->udp.checksum = 0; // Temporary value, will be calculated later
 		
 		// populate the payload with the current time
-		u_int32_t curr_time = (u_int32_t) time(NULL);
-		printf("curr_time: %d\n", curr_time); // Print the original time for debugging
-		u_int32_t temp_convert_time = curr_time; // + 2208988800U; // Add the NTP epoch offset
-		temp_convert_time = htonl(temp_convert_time); // Convert to network byte order for payload
-		printf("temp_convert_time: %x\n", temp_convert_time); // Print the original time for debugging
+
+		u_int32_t now = std::chrono::duration_cast<std::chrono::seconds> (std::chrono::system_clock::now().time_since_epoch()).count();
+		// Credit code to https://www.epochconverter.com/ ^
 	
-		memcpy(reply->payload, &temp_convert_time, sizeof(u_int32_t)); // Copy the time to the payload
+		memcpy(reply->payload, &now, sizeof(u_int32_t)); // Copy the time to the payload
 		size = sizeof(u_int32_t); // Set the size to the size of the time payload
 
 		reply->udp.len = htons(sizeof(UDP) + size); // Set the length of the UDP header
@@ -650,13 +692,15 @@ u_short UDP_checksum_maker(u_short *buffer, int size)
 void build_and_send_UDP(UDP_packet *packet, size_t size)
 {
 	// Time to write to pcap file
-	pcap_pkthdr phead = packet->phead;
+	// pcap_pkthdr phead = packet->phead;
 	UDP udp = packet->udp;
 
 	pcap_pkthdr pph;
-	// TODO fix time
-	pph.ts_secs = htons(phead.ts_secs); // Use the original timestamp directly without htons
-	pph.ts_usecs = htons(phead.ts_usecs); // Preserve the original microseconds
+	// pph.ts_secs = time(NULL); // Set the timestamp to the current time
+	// pph.ts_usecs = 0; // Set the microseconds to 0
+	pph.ts_secs = packet->phead.ts_secs; // Copy the timestamp from the original packet
+	pph.ts_usecs = packet->phead.ts_usecs; // Copy the microseconds from the original packet
+	
 	pph.caplen = sizeof(eth_hdr) + sizeof(IPv4) + sizeof(udp) + size; // Dynamically calculate the captured length, including the ICMP payload size
 	pph.len = pph.caplen; // Set the actual length to the captured length
 

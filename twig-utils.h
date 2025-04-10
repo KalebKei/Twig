@@ -134,4 +134,35 @@ struct __attribute__((__packed__)) UDP_packet { // thank you Silas
     char payload[65535]; // Flexible array member for UDP payload
 };
 
+struct ARP_Entry {
+    u_char mac[6]; // MAC address
+    u_char ip[4];  // IP address
+    time_t last_seen; // Last seen time
+};
+
+struct ARP_Cache {
+    ARP_Entry entries[100]; // Array of ARP entries
+    int count; // Number of entries in the cache
+
+    ARP_Cache() : count(0) {} // Constructor to initialize count
+    void add_entry(const u_char* mac, const u_char* ip) {
+        if (count < 100) {
+            // Check if the entry already exists
+            for (int i = 0; i < count; i++) {
+                if (memcmp(entries[i].mac, mac, sizeof(entries[i].mac)) == 0 &&
+                    memcmp(entries[i].ip, ip, sizeof(entries[i].ip)) == 0) {
+                    entries[i].last_seen = time(NULL); // Update the last seen time
+                    return;
+                }
+            }
+
+            // If it doesn't exist, add a new entry
+            memcpy(entries[count].mac, mac, sizeof(entries[count].mac));
+            memcpy(entries[count].ip, ip, sizeof(entries[count].ip));
+            entries[count].last_seen = time(NULL); // Set the last seen time to the current time
+            count++;
+        }
+    }
+};
+
 #endif
