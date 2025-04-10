@@ -570,8 +570,8 @@ void do_UDP(UDP_packet *packet, size_t size)
 	
 	// Calculate checksum after setting all fields 
 	// TODO check if bytes are fucked up
-	#pragma GCC diagnostic ignored "-Waddress-of-packed-member"
-	reply->udp.checksum = ntohs(UDP_checksum_maker((u_short *) &reply->udp, sizeof(UDP) + size));
+	// #pragma GCC diagnostic ignored "-Waddress-of-packed-member"
+	// reply->udp.checksum = ntohs(UDP_checksum_maker((u_short *) &reply->udp, sizeof(UDP) + size));
 
 	// Copy the ethernet header and IP headers
 	reply->ehead = packet->ehead; // Copy the ethernet header
