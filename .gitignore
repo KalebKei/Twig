@@ -10,3 +10,10 @@
 .vscode/
 
 udp_ping/
+
+
+# Ignore executables
+*.out
+*.exe
+twig
+tools/socket_time
