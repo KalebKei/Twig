@@ -549,48 +549,51 @@ void do_UDP(UDP_packet *packet, size_t size)
 	if(twig_debug) printf("Doing UDP\n");
 
 	// Build the UDP packet
+
 	UDP_packet *reply;
-	reply = (UDP_packet *)malloc(sizeof(UDP_packet)); // Allocate memory for the UDP packet
+	reply = (UDP_packet *)malloc(sizeof(ICMP_packet)); // Allocate memory for the ICMP packet
 	if(reply == NULL) {
-		perror("malloc failed for UDP_packet");
+		perror("malloc failed for ICMP_packet reply");
 		exit(1);
 	}
-	memcpy(&reply->phead, &packet->phead, sizeof(packet->phead));
-	memcpy(&reply->udp, &packet->udp, sizeof(UDP));
-	memcpy(reply->payload, packet->payload, size); // Copy the payload from the original packet
 	
-	if(ntohs(packet->udp.dport) == 7) 
-	{
-		reply->udp.sport = (packet->udp.dport);
-		reply->udp.dport = (packet->udp.sport); // Copy the ID from the request
-		reply->udp.len = htons(sizeof(UDP) + size); // Set the length of the IP header
+	memcpy(&reply->udp, &packet->udp, sizeof(ICMP)); // Copy the ICMP header from the original packet
+
+	if(ntohs(packet->udp.dport) == 7) // We got an echo request (ping), we must reply!!! I've been pinged!!!!!!
+    {
+		reply->udp.sport = packet->udp.dport; // Copy the source port from the request
+		reply->udp.dport = packet->udp.sport; // Copy the destination port from the request
+		reply->udp.len = htons(sizeof(UDP) + size); // Set the length of the UDP header
 		reply->udp.checksum = 0; // Temporary value, will be calculated later
 		memcpy(reply->payload, packet->payload, size); // Copy the payload from the original packet
-
-		// Calculate checksum after setting all fields
-#pragma GCC diagnostic ignored "-Waddress-of-packed-member"
-		reply->udp.checksum = UDP_checksum_maker((u_short *) &reply->udp, sizeof(UDP) + size); // Calculate the checksum for the ICMP header		
-
-		// Copy the ethernet header and IP headers
-		reply->ehead = packet->ehead; // Copy the ethernet header
-		memcpy(reply->ehead.dest, packet->ehead.src, sizeof(reply->ehead.dest)); // Swap source and destination MAC addresses
-		memcpy(reply->ehead.src, packet->ehead.dest, sizeof(reply->ehead.src)); // Swap source and destination MAC addresses
-
-		reply->ip = packet->ip; // Copy the IP header
-		memcpy(reply->ip.dest, packet->ip.src, 4); // Swap source and destination IP addresses
-		memcpy(reply->ip.src, packet->ip.dest, 4);
-		reply->ip.len = htons(sizeof(IPv4) + sizeof(UDP) + size); // Set the length of the IP header
-		reply->ip.frag_ident = htons(0); // Set the fragment identifier to 0
-		reply->ip.frag_offset = htons(0); // Set the fragment offset to 0
-		reply->ip.ttl = 64; // Set the TTL to 64
-		reply->ip.csum = 0; // Temporary value, will be calculated later
-
-#pragma GCC diagnostic ignored "-Waddress-of-packed-member"
-		reply->ip.csum = IPv4_checksum_maker((u_short *)&reply->ip, sizeof(IPv4)); // Calculate the checksum for the IP header
-
-		build_and_send_UDP(reply, size);
-		
 	}
+	
+	// Calculate checksum after setting all fields 
+	// TODO check if bytes are fucked up
+	#pragma GCC diagnostic ignored "-Waddress-of-packed-member"
+	reply->udp.checksum = ntohs(UDP_checksum_maker((u_short *) &reply->udp, sizeof(UDP) + size));
+
+	// Copy the ethernet header and IP headers
+	reply->ehead = packet->ehead; // Copy the ethernet header
+	memcpy(reply->ehead.dest, packet->ehead.src, sizeof(reply->ehead.dest)); // Swap source and destination MAC addresses
+	memcpy(reply->ehead.src, packet->ehead.dest, sizeof(reply->ehead.src)); // Swap source and destination MAC addresses
+	
+	reply->ip = packet->ip; // Copy the IP header
+
+	reply->ip.frag_offset = htons(0); // Set the fragment offset to 0
+	reply->ip.ttl = 64; // Set the TTL to 64
+	reply->ip.csum = 0; // Temporary value, will be calculated later
+	reply->ip.len = htons(sizeof(IPv4) + sizeof(UDP) + size); // Set the length of the IP header
+	reply->ip.frag_ident = htons(0); // Set the fragment identifier to 0
+	reply->ip.type = 0x11; // Set the protocol type to UDP
+	memcpy(reply->ip.dest, packet->ip.src, 4); // Swap source and destination IP addresses
+	memcpy(reply->ip.src, packet->ip.dest, 4);
+
+
+	#pragma GCC diagnostic ignored "-Waddress-of-packed-member"
+	reply->ip.csum = IPv4_checksum_maker((u_short *)&reply->ip, sizeof(IPv4)); // Calculate the checksum for the IP header
+
+	build_and_send_UDP(reply, size);
 }
 
 u_short UDP_checksum_maker(u_short *buffer, int size)
