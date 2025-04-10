@@ -578,7 +578,7 @@ void build_and_send_ICMP(ICMP_packet *packet, size_t size) {
 		printf("ICMP type : %d\n", icmp.type);
 	}
 
-	if(twig_debug)
+	if(twig_debug || debug)
 	{
 		printf("### Sending ICMP Reply ###\n");
 		print_ethernet(&packet->ehead); // Print the ethernet header for debugging
@@ -747,7 +747,7 @@ void build_and_send_UDP(UDP_packet *packet, size_t size)
 		printf("sizeof(UDP): %zu\n", sizeof(UDP));
 	}
 
-	if(twig_debug)
+	if(twig_debug || debug)
 	{
 		printf("### Sending UDP Reply ###\n");
 		print_ethernet(&packet->ehead); // Print the ethernet header for debugging
